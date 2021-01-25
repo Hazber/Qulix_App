@@ -1,0 +1,19 @@
+﻿@model QulixApp.Models.EmployeeModel
+@{
+    ViewBag.Title = "New " + Html.DisplayNameForModel().ToString().ToLower();
+}
+<h2>@ViewBag.Title</h2>
+@using (@Html.BeginForm("New", "Employee", FormMethod.Post))
+{
+    @Html.EditorFor(m => m.Employee);
+    @Html.EditorFor(m => m.Employee.Company);
+    @Html.LabelFor(m => Model.Employee.Company)
+    <br />
+    @Html.DropDownListFor(m => Model.Employee.Company.CompanyID, Model.SelectCompany(), "")
+    <span />
+    @Html.ValidationMessageFor(m => Model.Employee.Company.CompanyID)
+    <br />
+    <br />
+    <p><input type="submit" name="action" value="Add" />&nbsp;<input type="button" onclick="history.go(-1)" value="Cancel" /></p>
+    @*<p>@Html.ActionLink("Back to list", "Index")</p>*@
+}

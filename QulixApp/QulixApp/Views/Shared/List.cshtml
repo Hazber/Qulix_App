@@ -1,0 +1,61 @@
+﻿@model QulixApp.Models.EmployeeGrid
+@using QulixApp.Domain
+@using QulixApp.HtmlHelpers
+
+<div class="table-responsive">
+    <table class="table table-bordered table-hover">
+        <thead>
+            <tr>
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Name).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Name).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Name).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Surname).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Surname).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Surname).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Patronymic).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Patronymic).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Patronymic).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Company.CompanyName).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Company).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Company).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().EmployeePosition).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().EmployeePosition).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().EmployeePosition).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().EmploymentDate).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().EmploymentDate).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().EmploymentDate).ToString())
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+          @foreach (var item in Model.Employee)
+          {
+               <tr>
+                   <td>@Html.ActionLink(item.Name, "Edit", "Employees", new { EmployeeID = item.EmployeeID }, null)</td>
+                   <td>@Html.DisplayFor(modelitem => item.Company.CompanyName)</td>
+                   <td class="@Html.DisplayFor(modelitem => item.EmployeePosition)">@if (item.EmployeePosition != Position.None)
+                   {@Html.DisplayFor(modelitem => item.EmployeePosition);
+                   }</td>
+                   <td>
+                   @Html.DisplayFor(modelitem => item.EmploymentDate)</td>
+              </tr>
+         } 
+</tbody>
+</table>
+</div>
+@if (Model.PagingInfo.totalPages > 1)
+{
+    <ul class="pagination">
+        @Html.PageLinks(Model.PagingInfo, x => Url.Action("Index", new { page = x, sortOrder = Model.SortingInfo.currentSort }))
+    </ul>
+}

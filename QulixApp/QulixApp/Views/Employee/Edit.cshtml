@@ -1,0 +1,29 @@
+﻿@model QulixApp.Models.EmployeeModel
+
+@{
+    ViewBag.Title = "Edit " + Html.DisplayNameForModel().ToString().ToLower();
+}
+<h2>@ViewBag.Title @Model.Employee.Name</h2>
+@using (@Html.BeginForm("Edit", "Employee", FormMethod.Post))
+{
+    @Html.HiddenFor(m => Model.Employee.EmployeeID)
+    <div>
+        @Html.LabelFor(m => Model.Employee.Name)
+        @Html.EditorFor(m => Model.Employee.Name)
+        @Html.ValidationMessageFor(m => Model.Employee.Name)
+    </div>
+    <div>
+        @Html.LabelFor(m => Model.Employee.Company)
+        @Html.DropDownListFor(m => Model.Employee.Company.CompanyID, Model.SelectCompany())
+        @Html.ValidationMessageFor(m => Model.Employee.Company.CompanyID)
+    </div>
+    <div>
+        @Html.LabelFor(m => Model.Employee.EmployeePosition)
+        @Html.EditorFor(m => Model.Employee.EmployeePosition)
+        @*@Html.EnumDropDownListFor(m => Model.Employee.EmployeePosition)*@
+        @*@Html.DropDownListFor(m => m.Model.Employee.EmployeePosition, new SelectList(Enum.GetNames(typeof(Example_Employees.Domain.Supporter))))*@
+        @Html.ValidationMessageFor(m => Model.Employee.EmployeePosition)
+    </div>
+    <br />
+    <p><input type="submit" name="action" value="Save" />&nbsp;<input type="submit" name="action" value="Remove" onclick="javascript:return confirm('Are you sure?');" />&nbsp;<input type="submit" name="action" value="Cancel" /></p>
+}

@@ -1,0 +1,835 @@
+Здравствуйте
+Здесь будет кратко описана последовательность действий для создания приложения
+
+ТЗ:
+Разработать приложение для регистрации работников компаний.
+Приложение должно позволять вводить, редактировать и удалять следующие данные:
+1.	Работник 
+a.	Идентификатор 
+b.	Фамилия 
+c.	Имя 
+d.	Отчество 
+e.	Дата приёма на работу 
+f.	Должность (Разработчик | Тестировщик | Бизнес-аналитик | Менеджер) 
+g.	Компания
+2.	Компания 
+a.	Идентификатор 
+b.	Наименование 
+c.	Организационно-правовая форма (например, ООО, ЗАО и т.д.)
+Приложение должно содержать следующие основные элементы:
+1.	Главное Меню 
+a.	Работники: Отображается форма “Список работников” 
+b.	Компании: Отображается форма “Список компаний”
+2.	Форма “Список работников”
+a.	Колонки: 
+i.	Идентификатор
+ii.	Фамилия
+iii.	Имя
+iv.	Отчество
+v.	Дата приёма на работу
+vi.	Должность (Разработчик | Тестировщик | Бизнес-аналитик | Менеджер)
+vii.	Компания
+b.	Команды уровня формы 
+i.	Добавить: Отображается форма ввода работника в режиме добавления
+c.	Команды уровня записи 
+i.	Изменить: Отображается форма ввода работника в режиме редактирования
+ii.	Удалить: Текущая запись удаляется
+
+////////////////////////////////////////БД//////////////////////////////////////////////
+Для начала создаем бд
+
+CREATE SCHEMA `example`;
+USE `example`;
+CREATE TABLE `Employee` (
+  `EmployeeID` int(4) unsigned NOT NULL AUTO_INCREMENT,
+  `EmployeePosition` enum('None','Developer','Tester','BusinessAnalyst','Manager') NOT NULL DEFAULT 'None',
+  `Name` varchar(255) NOT NULL,
+  `Surname` varchar(255) NOT NULL,
+  `Patronymic` varchar(255) NOT NULL,
+  `CompanyID` int(4) unsigned NOT NULL DEFAULT '2',
+  `EmploymentDate` datetime DEFAULT NULL,
+  PRIMARY KEY (`CompanyID`),
+  KEY `i_Name` (`Name`),
+  KEY `i_Company_idx` (`CompanyID`),
+  CONSTRAINT `i_Company` FOREIGN KEY (`CompanyID`) REFERENCES `Company` (`CompanyID`)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+CREATE TABLE `Company` (
+  `CompanyID` int(4) unsigned NOT NULL AUTO_INCREMENT,
+  `CompanyName` varchar(50) NOT NULL DEFAULT '',
+  `CompanyOrganizationalForm` enum('None','LLC','CJSC','etc') NOT NULL DEFAULT 'None',
+  PRIMARY KEY (`CompanyID`)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+
+База данных (БД) будет простая и представлена всего двумя таблицами, со одной связью «один-ко-многим» между ними по полю CompanyID. 
+
+//////////////////////////////НАСТРОЙКА ИНФРАСТРУКТУРЫ//////////////////
+
+Для работы с СУБД MySQL добавляем библиотеку MySql.Data: либо вручную, если коннектор mysql-connector-net-8.0.18 уже установлен на компьютер, либо из менеджера пакетов Nuget.
+Добавляем в файл Web.config конфигурацию строки подключения к СУБД MySQL:
+
+<connectionStrings>
+  <add name="example" providerName="MySql.Data.MySqlClient" connectionString="server=localhost;Port=3306;Employee id=develop;Password=develop;persistsecurityinfo=True;database=example;CharSet=utf8;SslMode=none" />
+</connectionStrings>
+
+Добавляем в раздел <appSettings> строку со ссылкой на добавленную строку подключения: <add key="ConnectionString" value="example" />
+Добавляем в приложение новый каталог Domain, в нём создаем новый статический класс Base (в файле Base.cs), в котором идут обращения к этим параметрам:
+
+public static class Base
+{
+    private static string ConnectionString
+    {
+        get
+        { return System.Configuration.ConfigurationManager.AppSettings["ConnectionString"]; }
+    }
+ 
+    public static string strConnect
+    {
+        get
+        { return System.Configuration.ConfigurationManager.ConnectionStrings[ConnectionString].ConnectionString; }
+    }
+}
+
+Мне нравится иметь в приложении некий базовый класс со ссылками на параметры приложения и какими-нибудь стандартными функциями, которые можно было бы вызывать из всего приложения.
+Название строки подключения определено в параметрах приложения, чтобы в дальнейшем было проще работать со строкой подключения к СУБД: быстро переключаться между разными базами данных и менять параметры подключения.
+Кроме этого, использование названия строки подключения в параметре приложения, удобно использовать для публикации приложения в Microsoft Azure – там можно задать параметр для службы приложения, которая используется для публикации, и в нём определить нужную строку подключения, которая заранее определена в <connectionStrings>. Тогда при публикации можно не использовать трансформацию файла web.config
+
+/////////////////////МОДЕЛЬ///////////////////////////
+
+Создаем файлы EmployeeClass в каталоге Domain
+
+using System;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Web.Mvc;
+
+namespace QulixApp.Domain
+{
+    [DisplayName("Employee")]
+    public class EmployeeClass
+    {
+        [Key]
+        [HiddenInput(DisplayValue = false)]
+        public int EmployeeID { get; set; }
+
+        [Required(ErrorMessage = "Please enter a name")]
+        [Display(Name = "Name")]
+        public string Name { get; set; }
+
+        [Required(ErrorMessage = "Please enter a surname")]
+        [Display(Name = "Surname")]
+        public string Surname { get; set; }
+
+        [Required(ErrorMessage = "Please enter a patronymic")]
+        [Display(Name = "Patronymic")]
+        public string Patronymic { get; set; }
+
+        public virtual CompanyClass Company { get; set; }
+
+        [UIHint("Enum")]
+        [EnumDataType(typeof(Position))]
+        [Required(ErrorMessage = "Please select Employee position")]
+        [Display(Name = "Position")]
+        public Position EmployeePosition { get; set; }
+
+        [HiddenInput(DisplayValue = true)]
+        [ScaffoldColumn(false)]
+        [Display(Name = "Employment date")]
+        public DateTime? EmploymentDate { get; set; }
+
+        public EmployeeClass() { }
+
+        public EmployeeClass(int EmployeeID,string Name, string Surname,string Patronymic,CompanyClass Company,Position EmployeePosition,DateTime? EmploymentDate) 
+        {
+            this.EmployeeID = EmployeeID;
+            this.Name = Name;
+            this.Patronymic = Patronymic;
+            this.Company = Company;
+            this.EmployeePosition = EmployeePosition;
+            this.EmploymentDate = EmploymentDate;
+
+        }
+
+    }
+
+    public enum Position
+    { 
+        [Display(Name ="")]
+        None=1,
+        Developer=2,
+        Tester=3,
+        BusinessAnalyst=4,
+        Manager=5
+
+    }
+
+}
+
+
+Класс CompanyClass 
+
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Web.Mvc;
+
+namespace QulixApp.Domain
+{
+    [DisplayName("Company")]
+    public class CompanyClass
+    {
+        [Key]
+        [HiddenInput(DisplayValue = false)]
+        [Required(ErrorMessage = "Please select a company")]
+        [Range(1, int.MaxValue, ErrorMessage = "Please select a company")]
+        public int CompanyID { get; set; }
+
+        [Display(Name ="Company")]
+        public string CompanyName { get; set; }
+
+        [UIHint("Enum")]
+        [EnumDataType(typeof(OrganizationalForm))]
+        [Required(ErrorMessage = "Please select Organizational form")]
+        [Display(Name = "Organizational form")]
+        public OrganizationalForm CompanyOrganizationalForm { get; set; }
+
+        public CompanyClass() { }
+
+        public CompanyClass(int CompanyID, string CompanyName, OrganizationalForm CompanyOrganizationalForm)
+        {
+            this.CompanyID = CompanyID;
+            this.CompanyName = CompanyName;
+            this.CompanyOrganizationalForm = CompanyOrganizationalForm;
+        }
+
+    }
+
+    public enum OrganizationalForm
+    {
+        [Display(Name = "")]
+        None=1,
+        LLC=2,
+        CJSC=3,
+        etc=4
+    }
+}
+
+Тут можно видеть, что свойства классов повторяют структуру таблицы Employee и Company в СУБД. Для типа перечисления создан enum Position, чтобы его можно было использовать для свойства класса EmployeePosition аналогичного поля таблицы БД. Для полей EmployeeID, CompanyID можно видеть, что они заданы, как первичный ключ, точно так же, как и в БД. Для этого использован атрибут [Key].
+
+/////////Представление//////
+В каталоге Views создаем каталог Employee для наших представлений. Все наши представления используют стандартный (определен в файле _ViewStart.cshtml в каталоге Views) макет _Layout.cshtml, расположенный в каталоге Views\Shared. Создаем представление Index (файл Index.cshtml в каталоге Employee):
+
+@model QulixApp.Models.EmployeeGrid
+
+@{
+    ViewBag.Title = "EmployeePage";
+}
+
+@using (@Html.BeginForm())
+{
+    <div>
+        <h3>Employees list:</h3>
+        @if (TempData["message"] != null)
+        {<div class="text-success">@TempData["message"]</div>}
+        @if (TempData["error"] != null)
+        {<div class="text-warning"><span class="alert">ERROR:</span> @TempData["error"]</div>}
+        @Html.Partial("List")
+        <p>
+            <input type="submit" name="onNewEmployee" value="New employee" />
+            @*@Html.ActionLink("New employee", "New", "Employees")*@
+        </p>
+    </div>
+}
+
+Если мы хотим, чтобы данное представление запускалось по умолчанию, то в файл RouteConfig.cs вносим изменение для Default:
+
+routes.MapRoute(name: "Default", url: "{controller}/{action}/{id}",
+defaults: new { controller = "Employee", action = "Index", id = UrlParameter.Optional });
+
+В самом представлении надо обратить внимание на строчку с Html.Partial("List"). Это нужно для отрисовки в данном месте специального отдельного общего частичного представления, расположенного в файле List.cshtml в каталоге Views\Shared. Собственно оно представляет из себя именно таблицу-грид для отображения данных из нашей таблицы БД Employees:
+
+@model QulixApp.Models.EmployeeGrid
+@using QulixApp.Domain
+@using QulixApp.HtmlHelpers
+
+<div class="table-responsive">
+    <table class="table table-bordered table-hover">
+        <thead>
+            <tr>
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Name).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Name).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Name).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Surname).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Surname).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Surname).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Patronymic).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Patronymic).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Patronymic).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().Company.CompanyName).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().Company).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().Company).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().EmployeePosition).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().EmployeePosition).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().EmployeePosition).ToString())
+                </th>
+
+                <th>
+                    @Html.ActionLink(Html.DisplayNameFor(m => Model.Employee.First().EmploymentDate).ToString(), "Index", Request.QueryString.ToRouteValueDictionary("sortOrder", Model.SortingInfo.NewOrder(Html.NameFor(m => Model.Employee.First().EmploymentDate).ToString())))
+                    @Html.SortIdentifier(Model.SortingInfo.currentSort, Html.NameFor(m => Model.Employee.First().EmploymentDate).ToString())
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+          @foreach (var item in Model.Employee)
+          {
+               <tr>
+                   <td>@Html.ActionLink(item.Name, "Edit", "Employees", new { EmployeeID = item.EmployeeID }, null)</td>
+                   <td>@Html.DisplayFor(modelitem => item.Company.CompanyName)</td>
+                   <td class="@Html.DisplayFor(modelitem => item.EmployeePosition)">@if (item.EmployeePosition != Position.None)
+                   {@Html.DisplayFor(modelitem => item.EmployeePosition);
+                   }</td>
+                   <td>
+                   @Html.DisplayFor(modelitem => item.EmploymentDate)</td>
+              </tr>
+         } 
+</tbody>
+</table>
+</div>
+@if (Model.PagingInfo.totalPages > 1)
+{
+    <ul class="pagination">
+        @Html.PageLinks(Model.PagingInfo, x => Url.Action("Index", new { page = x, sortOrder = Model.SortingInfo.currentSort }))
+    </ul>
+}
+
+Видно, что в заголовке таблицы данных используются хелперы Html.DisplayNameFor для отображения названий колонок и для этого приходится указывать ссылку на свойство объекта класса. Поскольку при формировании заголовка таблицы у нас есть только объект Model.Employee, который представляет собой список объектов типа EmployeeClass, то приходится применять следующий способ: выбирать первую строку этого списка, как объект класса EmployeeClass. Например, для имени пользователя: Model.Employee.First().Name. Поскольку у свойства Name класса Employee указан атрибут [Display(Name = "Name")], то в названии колонки будет выведено именно «Name»
+Что еще интересно в представлении List? Блок с foreach, понятно, отрисовывает объекты класса EmployeeClass, которые находятся в списке Employee, полученного из контроллера. А интересны тут объекты SortingInfo и PagingInfo в нашей модели EmployeeGrid. А эти объекты нужны для организации сортировки данных (используется в заголовке таблицы в тегах <th>) и организации постраничного вывода информации (используется внизу страницы, под таблицей). Именно поэтому я не использую в качестве модели чисто список объектов типа IEnumerable<EmployeeClass>. А в качестве модели использую класс EmployeeGrid, который расположен в файле EmployeeGrid.cs в каталоге Model.
+
+using QulixApp.Domain;
+using System.Collections.Generic;
+
+
+namespace QulixApp.Models
+{
+    public class EmployeeGrid
+    {
+        public IEnumerable<EmployeeClass> Employee { get; set; }
+        public PagingInfo PagingInfo { get; set; }
+        public SortingInfo SortingInfo { get; set; }
+    }
+}
+
+И сами классы PagingInfo и SortingInfo в файле GridInfo.cs в том же месте.
+
+public class PagingInfo
+{
+    // всего строк в выборке
+    public int totalItems { get; set; }
+    // сколько отображать на страницу
+    public int itemsPerPage { get; set; }
+    // текущая страница
+    public int currentPage { get; set; }
+    // сколько максимально можно отобразить ссылок на страницы таблицы
+    public int showPages { get; set; }
+    // всего страниц
+    public int totalPages
+    {
+        get { return (int)Math.Ceiling((decimal)totalItems / itemsPerPage); }
+    }
+    // сколько отобразить ссылок на страницы слева и справа от текущей
+    public int pagesSide
+    {
+        get { return (int)Math.Truncate((decimal)showPages / 2); }
+    }
+}
+ 
+public class SortingInfo
+{
+    // название поля, по которому идёт сортировка
+    public string currentOrder { get; set; }
+    // направление сортировки
+    public SortDirection currentDirection { get; set; }
+    // получение строки параметра для передачи
+    public string currentSort
+    {
+        get { return currentDirection != SortDirection.Descending ? currentOrder : currentOrder + "_desc"; }
+    }
+    // генерация нового порядка сортировки для столбцов (если уже была сортировка по столбцу - делаем обратную сортировку)
+    public string NewOrder(string columnName)
+    {
+        return columnName == currentOrder && currentDirection != SortDirection.Descending ? columnName + "_desc" : columnName;
+    }
+}
+
+А для использования в представлениях добавлены специальные хелперы в файле GridHelpers.cs (каталог HtmlHelpers):
+
+public static class GridHelpers
+{
+    // Отображаем пейджер в виде 1 ... 3 4 5 ... Last
+    public static MvcHtmlString PageLinks(this HtmlHelper html, PagingInfo pagingInfo, Func<int, string> pageUrl)
+    {
+        StringBuilder result = new StringBuilder();
+        if (pagingInfo.currentPage > pagingInfo.pagesSide + 1)
+        {// первая страница
+            TagBuilder li = new TagBuilder("li");
+            li.AddCssClass("page-item");
+ 
+            TagBuilder tag = new TagBuilder("a");
+            tag.MergeAttribute("href", pageUrl(1));
+            tag.InnerHtml = "1";
+ 
+            li.InnerHtml = tag.ToString();
+            result.Append(li.ToString());
+        }
+        int page1 = pagingInfo.currentPage - pagingInfo.pagesSide;
+        int page2 = pagingInfo.currentPage + pagingInfo.pagesSide;
+        if (page1 < 1)
+        {
+            page2 = page2 - page1 + 1;
+            page1 = 1;
+        }
+        if (page2 > pagingInfo.totalPages) page2 = pagingInfo.totalPages;
+        if (page1 > 2)
+        {// ...
+            TagBuilder li = new TagBuilder("li");
+            li.AddCssClass("page-item");
+ 
+            TagBuilder tag = new TagBuilder("span");
+            tag.InnerHtml = "...";
+            tag.AddCssClass("page-item");
+            tag.AddCssClass("disabled");
+ 
+            li.InnerHtml = tag.ToString();
+            result.Append(li.ToString());
+        }
+        for (int i = page1; i <= page2; i++)
+        {// страницы
+            TagBuilder li = new TagBuilder("li");
+            li.AddCssClass("page-item");
+            if (i == pagingInfo.currentPage) li.AddCssClass("active");
+ 
+            TagBuilder tag = new TagBuilder("a");
+            tag.AddCssClass("page-link");
+            tag.MergeAttribute("href", pageUrl(i));
+            tag.InnerHtml = i.ToString();
+ 
+            li.InnerHtml = tag.ToString();
+            result.Append(li.ToString());
+        }
+        if (page2 < pagingInfo.totalPages)
+        {// ... и последняя страница
+            TagBuilder li = new TagBuilder("li");
+            li.AddCssClass("page-item");
+ 
+            TagBuilder tag = new TagBuilder("span");
+            tag.InnerHtml = "...";
+            tag.AddCssClass("page-item");
+            tag.AddCssClass("disabled");
+            li.InnerHtml = tag.ToString();
+            result.Append(li.ToString());
+ 
+            li = new TagBuilder("li");
+            li.AddCssClass("page-item");
+ 
+            tag = new TagBuilder("a");
+            tag.MergeAttribute("href", pageUrl(pagingInfo.totalPages));
+            tag.InnerHtml = pagingInfo.totalPages.ToString();
+ 
+            li.InnerHtml = tag.ToString();
+            result.Append(li.ToString());
+        }
+        return MvcHtmlString.Create(result.ToString());
+    }
+ 
+    public static IHtmlString SortIdentifier(this HtmlHelper htmlHelper, string sortOrder, string field)
+    {
+        if (string.IsNullOrEmpty(sortOrder) || (sortOrder.Trim() != field && sortOrder.Replace("_desc", "").Trim() != field)) return null;
+        string glyph = "glyphicon glyphicon-chevron-up";
+        if (sortOrder.ToLower().Contains("desc"))
+        {
+            glyph = "glyphicon glyphicon-chevron-down";
+        }
+        var span = new TagBuilder("span");
+        span.Attributes["class"] = glyph;
+        return MvcHtmlString.Create(span.ToString());
+    }
+ 
+    public static RouteValueDictionary ToRouteValueDictionary(this NameValueCollection collection, string newKey, string newValue)
+    {
+        var routeValueDictionary = new RouteValueDictionary();
+        foreach (var key in collection.AllKeys)
+        {
+            if (key == null) continue;
+            if (routeValueDictionary.ContainsKey(key))
+                routeValueDictionary.Remove(key);
+            routeValueDictionary.Add(key, collection[key]);
+        }
+        if (string.IsNullOrEmpty(newValue))
+        {
+            routeValueDictionary.Remove(newKey);
+        }
+        else
+        {
+            if (routeValueDictionary.ContainsKey(newKey))
+                routeValueDictionary.Remove(newKey);
+            routeValueDictionary.Add(newKey, newValue);
+        }
+        return routeValueDictionary;
+    }
+}
+
+Поскольку грид с данными без сортировки и без постраничного вывода информации достаточно бесполезная вещь, а стандартного хелпера для целой таблицы данных в ASP.NET MVC нет, то приходится их создавать самостоятельно (либо брать созданный кем-то другим). В данном случае, я подсмотрел несколько реализаций в книгах по ASP.NET MVC и решений представленных в интернете. Причем, почему-то решений, объединяющих вместе хотя бы и сортировку данных и постраничный вывод, либо вовсе нет, либо я не нашел. Пришлось всё это дело осмысливать, объединять и дорабатывать до нормального состояния. 
+Так же были созданы представления для модификации и добавления данных
+Например,NewModel
+@model QulixApp.Models.EmployeeModel
+@{
+    ViewBag.Title = "New " + Html.DisplayNameForModel().ToString().ToLower();
+}
+<h2>@ViewBag.Title</h2>
+@using (@Html.BeginForm("New", "Employee", FormMethod.Post))
+{
+    @Html.EditorFor(m => m.Employee);
+    @Html.EditorFor(m => m.Employee.Company);
+    @Html.LabelFor(m => Model.Employee.Company)
+    <br />
+    @Html.DropDownListFor(m => Model.Employee.Company.CompanyID, Model.SelectCompany(), "")
+    <span />
+    @Html.ValidationMessageFor(m => Model.Employee.Company.CompanyID)
+    <br />
+    <br />
+    <p><input type="submit" name="action" value="Add" />&nbsp;<input type="button" onclick="history.go(-1)" value="Cancel" /></p>
+    @*<p>@Html.ActionLink("Back to list", "Index")</p>*@
+}
+В этом представлении для примера показано использование хелпера Html.EditorFor в качестве средства для генерации тегов для редактирования всех свойств объектов класса EmployeeClass.
+
+В этом представлении используется в качестве модели класс EmployeeModel, а не EmployeeClass непосредственно. Сам класс EmployeeModel размещен в файле EmployeeModel.cs в каталоге Models:
+using QulixApp.Domain;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.Mvc;
+
+namespace QulixApp.Models
+{
+    public class EmployeeModel
+    {
+        public EmployeeClass Employee { get; set; }
+        private IList<CompanyClass> Company { get; set; }
+
+        public EmployeeModel() { }
+        public EmployeeModel(EmployeeClass employee, IList<CompanyClass> company)
+        {
+            this.Employee = employee;
+            this.Company = company;
+        }
+
+        public IEnumerable<SelectListItem> SelectCompany()
+        {
+            if (Company != null) return new SelectList(Company, "CompanyID", "CompanyName","CompanyOrganizationalForm");
+            return null;
+        }
+    }
+}
+
+В этом хелпере используется вызов функции SelectCompany(), которая преобразует список языков в объект типа SelectList с уже установленными параметрами идентификатора и названия строки. Выносить генерацию этого объекта в представление было бы неверным, потому что представление по идее не должно знать об этих привязках к названиям полей. Можно было бы, конечно, сразу в контроллере сгенерировать готовый SelectList, но мне вариант с приватным списком объектов доменного класса и функцией нравится больше.
+
+Для генерации выпадающего списка приходится использовать отдельные хелперы, потому что хелпер Html.EditorFor(m => m.Employee) не будет генерировать разметку редактирования для вложенного объекта типа CompanyClass (это можно было бы обойти написав общий шаблон для выпадающих списков, но ......).
+
+И поскольку в представлении используется объект класса EmployeeModel, который включает в себя еще один объект класса EmployeeClass, то и использовать хелпер Html.EditorForModel() не удастся, поскольку хелперы не являются рекурсивными и не будут работать в данной ситуации, поэтому используется хелпер Html.EditorFor() для объекта Employee.
+
+Также хочется обратить внимание на закомментированный тэг: Html.ActionLink("Back to list", "Index")
+
+Обычно подобным образом реализуется возврат из представления для редактирования обратно в список данных. На самом деле, во-первых, на мой взгляд, это смотрится странно – когда в форме у тебя используются кнопки типа button, а кнопка возврата почему-то реализована ссылкой. Во-вторых, если мы будем использовать сортировку и постраничный вывод – придется мудрить с возвратом в тот же вид на ту же страницу – и передавать в представление не только объект EmployeeClass, но и параметры для возврата обратно на страницу. Есть гораздо более простой способ – воспользоваться вариантом с кнопкой вида: />, которая и отправит пользователя обратно на страницу по истории браузера. Тут, безусловно, есть нюансы (например, вы уже на этой странице пытались сохранить объект, не получилось, и вот – вам уже надо дважды щелкать кнопку отмены), но данный вариант в целом неплохо работает.
+////////////////////////////////////////Enum
+
+И тут еще возник нюанс, связанный с использованием свойства класса типа enum. Дело в том, что если мы просто будем использовать хелпер Html.EditorFor(), то на форме отобразится поле ввода текстовой информации (тег вида <input type=”text”/>), а вообще-то нужно поле с выбором из набора значений (т.е. тег <select> с набором опций <option>).
+
+1. Прямолинейно это решается использованием хелпера типа Html.DropDownListFor() или Html.ListBoxFor(), например, в нашем случае: @Html.DropDownListFor(m => m.Model.Employee.EmployeePosition, new SelectList(Enum.GetNames(typeof(QulixApp.Domain.position)))). Тут два минуса – каждый раз это придется прописывать индивидуально и для хелпера Html.EditorForModel() или Html.EditorFor() это не подойдет.
+
+2. Можно создать пользовательский шаблон типа Editor. Создаем файл Supporter.cshtml в папке Views\Shared\EditorTemplates:
+
+@model QulixApp.Domain.Position
+@Html.DropDownListFor(m => m, new SelectList(Enum.GetNames(Model.GetType()), Model.ToString()))
+
+Название файла должно соответствовать названию типа, либо придется писать не Html.EditorFor(m => Model.EmployeePosition), а Html.EditorFor(m => Model.EmployeePosition, "Position"). Если файл назвать по-другому, то перед описанием свойства в классе надо будет добавить подсказку [UIHint("position")]. И это также придется делать, если планируется использовать Html.EditorForModel() – для него решение вида Html.EditorFor(m => Model.EmployeePosition, "Position") не подойдет.
+
+Мне этот вариант не подошел из-за того что, при попытке создания работника (запуск представления New) программа для хелперов Html.EditorFor() и Html.EditorForModel() выпадала с ошибкой: «Элемент модели, переданный в словарь, имеет значение NULL, но для этого словаря требуется элемент модели типа «QulixApp.Domain.Position», не имеющий значение NULL.» Причина понятна – значение для перечисления не может быть пустым, но решить проблему так и не удалось. Поэтому стал разбираться дальше.
+
+3. Можно использовать хелпер Html.EnumDropDownListFor(), специально сделанный для перечислений. Вот тут всё хорошо, ничего дополнительно писать не нужно, отображается всё корректно, работает и при редактировании и при создании объекта. Кроме одного «но»: хелпер Html.EditorForModel() использует для отображения всех свойств хелперы Html.EditorFor() и, соответственно, не использует Html.EnumDropDownListFor(). И, как я понял, это нельзя обойти с помощью атрибутов для свойств класса – [UIHint], [DataType] и [EnumDataType] тут не сработают. Также не будут работать атрибуты для значений перечисления, то есть вместо None не получится, например, вывести пустую строку, как это определено в описании перечисления Position.
+
+4. В итоге, мне подошел вариант решения, найденный на просторах интернета: создание общего шаблона для перечислений. Создаем файл Enum.cshtml в папке Views\Shared\EditorTemplates:
+
+@using System.ComponentModel.DataAnnotations
+@model Enum
+@{ 
+    Func<object, string> GetDisplayName = o =>
+    {
+        var result = null as string;
+        var display = o.GetType()
+                        .GetMember(o.ToString()).First()
+                        .GetCustomAttributes(false)
+                        .OfType<DisplayAttribute>()
+                        .LastOrDefault();
+        if (display != null) result = display.GetName();
+        return result ?? o.ToString();
+    };
+    var values = Enum.GetValues(ViewData.ModelMetadata.ModelType).Cast<object>()
+        .Select(v => new SelectListItem
+        {
+            Selected = v.Equals(Model),
+            Text = GetDisplayName(v), // v.ToString(),
+            Value = v.ToString()
+        });
+}
+@Html.DropDownList("", values)
+
+Вот тут всё вообще хорошо получилось: шаблон замечательно работает везде, где только можно. Даже [UIHint("Enum")] можно не добавлять. Причем данный общий шаблон читает атрибут [Display(Name)] для значений перечислений с помощью специальной функции.
+
+//////////////////////Контроллеры
+
+EmployeeController
+
+using QulixApp.Domain;
+using QulixApp.HtmlAttribute;
+using QulixApp.Models;
+using System.Collections.Generic;
+using System.Web.Mvc;
+
+
+
+namespace QulixApp.Controllers
+{
+    public class EmployeeController:Controller
+    {
+        
+        public int pageSize = 10;
+        public int showPages = 15;
+        public int count = 0;
+
+        // отображение списка пользователей
+        public ViewResult Index(string sortOrder, int page = 1)
+        {
+            string sortName = null;
+            System.Web.Helpers.SortDirection sortDir = System.Web.Helpers.SortDirection.Ascending;
+            sortOrder = Base.parseSortForDB(sortOrder, out sortName, out sortDir);
+            EmployeeRepository rep = new EmployeeRepository();
+            EmployeeGrid employee = new EmployeeGrid
+            {
+                Employee = rep.List(sortName, sortDir, page, pageSize, out count),
+                PagingInfo = new PagingInfo
+                {
+                    currentPage = page,
+                    itemsPerPage = pageSize,
+                    totalItems = count,
+                    showPages = showPages
+                },
+                SortingInfo = new SortingInfo
+                {
+                    currentOrder = sortName,
+                    currentDirection = sortDir
+                }
+            };
+            return View(employee);
+            
+        }
+
+        [ReferrerHold]
+        [HttpPost]
+        public ActionResult Index(string onNewEmployee)
+        {
+            if (onNewEmployee != null)
+            {
+                
+                TempData["referrer"] = ControllerContext.RouteData.Values["referrer"];
+                return View("New", new EmployeeModel(new EmployeeClass(), Companies()));
+            }
+            return View();
+        }
+
+        [ReferrerHold]
+        public ActionResult New()
+        {
+            TempData["referrer"] = ControllerContext.RouteData.Values["referrer"];
+            return View("New", new EmployeeModel(new EmployeeClass(), Companies()));
+        }
+
+        [HttpPost]
+        public ActionResult New(EmployeeModel model)
+        {
+            if (ModelState.IsValid)
+            {
+                if (model.Employee == null || model.Employee.Company == null || model.Employee.Company.CompanyID == 0) RedirectToAction("Index");
+                EmployeeRepository rep = new EmployeeRepository();
+                if (rep.AddEmployee(model.Employee)) TempData["message"] = string.Format("{0} has been added", model.Employee.Surname);
+                else TempData["error"] = string.Format("{0} has not been added!", model.Employee.Surname);
+                if (TempData["referrer"] != null) return Redirect(TempData["referrer"].ToString());
+                return RedirectToAction("Index");
+            }
+            else
+            {
+                model = new EmployeeModel(model.Employee, Companies()); // почему-то при невалидной модели в данный метод приходит пустой список model.Company, приходится перезаполнять
+                return View(model);
+            }
+        }
+
+        [ReferrerHold]
+        public ActionResult Edit(int EmployeeID)
+        {
+            EmployeeRepository rep = new EmployeeRepository();
+            EmployeeClass Employee = rep.FetchByID(EmployeeID);
+            if (Employee == null) return HttpNotFound();
+            TempData["referrer"] = ControllerContext.RouteData.Values["referrer"];
+            return View(new EmployeeModel(Employee, Companies()));
+        }
+
+        [HttpPost]
+        public ActionResult Edit(EmployeeModel model, string action)
+        {
+            if (action == "Cancel")
+            {
+                if (TempData["referrer"] != null) return Redirect(TempData["referrer"].ToString());
+                return RedirectToAction("Index");
+            }
+            if (ModelState.IsValid)
+            {
+                if (model.Employee == null || model.Employee.Company == null || model.Employee.Company.CompanyID == 0) RedirectToAction("Index");
+                EmployeeRepository rep = new EmployeeRepository();
+                if (action == "Save")
+                {
+                    if (rep.ChangeEmployee(model.Employee)) TempData["message"] = string.Format("{0} has been saved", model.Employee.Surname);
+                    else TempData["error"] = string.Format("{0} has not been saved!", model.Employee.Surname);
+                }
+                if (action == "Remove")
+                {
+                    if (rep.RemoveEmployee(model.Employee)) TempData["message"] = string.Format("{0} has been removed", model.Employee.Surname);
+                    else TempData["error"] = string.Format("{0} has not been removed!", model.Employee.Surname);
+                }
+                if (TempData["referrer"] != null) return Redirect(TempData["referrer"].ToString());
+                return RedirectToAction("Index");
+            }
+            else
+            {
+                model = new EmployeeModel(model.Employee, Companies());
+                return View(model);
+            }
+        }
+
+        public IList<CompanyClass> Companies()
+        {
+            CompanyRepository rep = new CompanyRepository();
+            return rep.List();
+        }
+    }
+}
+
+Разберём методы контроллера:
+
+1) Методы Index
+
+Отображение страницы со списком пользователей: public ViewResult Index(string sortOrder, int page = 1)
+
+Тут два входных параметра sortOrder и page. С page всё более-менее понятно, а вот через sortOrder из адресной строки можно передать произвольную строку, которую нам потом придется запихивать в SQL-запрос и делать это напрямую нельзя. Поэтому разбираем эту строку с помощью функции (здесь приводить саму функцию не буду, можно посмотреть в файле Base.cs): sortOrder = Base.parseSortForDB(sortOrder, out sortName, out sortDir);
+
+Далее всё банально, создаем объект  EmployeeRepository вызываем метод List для получения списка работников и формируем объект класса EmployeeGrid из собственно полученного списка работников и информации необходимой для организации постраничного вывода информации и сортировки. Причём значение totalItem получаем при вызове метода List, одновременно с созданием объекта класса EmployeeGrid. Далее этот объект передается для отображения представлению.
+
+Также есть другой метод Index с атрибутом [HttpPost], который нам потребовался для отработки нажатия кнопки New в представлении Index: public ActionResult Index(string onNewEmployee)
+
+Входной параметр onNewEmployee перекликается с элементом /> в представлении Index и при клике на этой кнопке передает в функцию значение, которое мы сверяем с null. Если бы кнопок типа submit было бы в представлении Index несколько, пришлось бы проверять и само значение (в данном случае значение было бы «New employee»).
+
+После проверки мы формируем объект класса EmployeeModel, состоящий из нового объекта EmployeeClass и списка языков для выбора их из выпадающего списка и передаем его представлению New. Список языков получается из репозитария CompanyRepository вызовом метода List следующим образом:
+
+public IList<LanguageClass> companies()
+{
+    ComapnyRepository rep = new CompanyRepository();
+    return rep.List();
+}
+
+2) Методы New
+
+Метод New без параметра сделан для отработки клика по ссылке New Employee для закомментированой строки Html.ActionLink("New Employee", "New", "Employees") в представлении Index. Действие (открытие представления New) осуществляется аналогично предыдущему, только проверки на нажатую кнопку нет, потому что отрабатывается нажатие на ссылку.
+
+Метод New с параметром model типа EmployeeModel для отработки события отправки данных формы с целью сохранения нового пользователя в БД: public ActionResult New(EmployeeModel model)
+
+Получает из представления New заполненный объект класса EmployeeModel, проверяет корректность данных (согласно требованиям, описанным в EmployeeClass и CompanyClass), создает объект репозитария EmployeesRepository и пытается добавить новую строку в БД, вызвав функцию AddEmployee(model.Employee). Потом осуществляется возврат на предыдущую страницу (откуда был вызов представления New) и там отображается сообщение об успехе операции или о неудаче.
+
+3) Методы Edit
+
+Метод Edit с входным параметром EmployeeID (идентификатор пользователя) отрабатывает щелчок по имени работника в списке для открытия представления редактирования данных пользователя: public ActionResult Edit(int EmployeeID)
+
+В методе опять же создается репозитарий EmployeesRepository и из него вызывается функция FetchByID(EmployeeID) для получения объекта типа EmployeeClass. В случае удачи создается модель – объект класса EmployeeModel из полученного объекта и списка языков и передается в представление Edit для отображения.
+
+Метод с входным параметром модели типа EmployeeModel и строки action: public ActionResult Edit(EmployeeModel model, string action)
+
+В данный метод передается объект типа EmployeeModel и он отрабатывает действия при нажатии на кнопки (отработка событий отправки данных формы) представления Edit. Для того чтобы понять, какая кнопка нажата используется входной параметр action, который указан в имени HTML-тегов типа input. Поэтому в методе идет сравнение значения данного параметра со значениями параметра value этих кнопок. До проверки модели на валидность проверяется значение Cancel, для выполнения действий по отмене редактирования пользователя. Этот вариант используется вместо возврата назад по истории браузера, примененный в представлении New и использующий запоминание адреса страницы, с которой перешли к представлению Edit. Для этого в контроллере продемонстрирована технология использования своего атрибута ActionFilter: класс ReferrerHoldAttribute в файле ReferrerHoldAttribute.cs (каталог HtmlAttribute):
+
+public class ReferrerHoldAttribute : ActionFilterAttribute
+{
+    public override void OnActionExecuting(ActionExecutingContext filterContext)
+    {
+        var referrer = filterContext.RequestContext.HttpContext.Request.UrlReferrer;
+        if (referrer != null) filterContext.RouteData.Values.Add("referrer", referrer);
+        base.OnActionExecuting(filterContext);
+    }
+}
+
+Он используется для хранения информации о той странице, куда надо вернуться после нажатия кнопки «New Employee» или ссылки на изменение пользователя: TempData["referrer"] = ControllerContext.RouteData.Values["referrer"];
+
+Он нужен, чтобы каждый раз не писать одинаковый код в разных методах. Можно было бы написать отдельную функцию в контроллере, но если используется несколько контроллеров, то практичнее использовать специальный тип атрибута.
+
+В дальнейшем, в теле метода, обрабатывающего действия представлений New и Edit, извлекается запомненная информация и используется для переадресации обратно на страницу, откуда были вызваны эти представления: if (TempData["referrer"] != null) return Redirect(TempData["referrer"].ToString());
+
+Для определения необходимости сохранения или удаления пользователя происходит сравнение параметра action со значениями Save и Remove соответственно, и вызываются из репозитария EmployeesRepository функции ChangeEmployee(model.Employee) и RemoveEmployee(model.Employee). Потом происходит возврат на предыдущую страницу (откуда был вызов представления Edit) и там отображается сообщение об успехе операции или о неудаче.
+
+////////////////БД
+Вот тут мы наконец-то добрались до работы с СУБД.Надо реализовать функции добавления пользователя в таблицу Employee, внесение изменений в данные работника, удаление работника из таблицы, получения работника по идентификатору, получения списка работников и получения списка компаний из таблицы 
+
+В основном используются стандартные конструкции для класса MySQL.Data с использованием MySqlCommand:
+
+using (MySqlConnection connect = new MySqlConnection(строка подключения))
+{
+    string sql = "текст запроса";
+    using (MySqlCommand cmd = new MySqlCommand(sql, connect))
+    {
+        cmd.Parameters.Add("название параметра", тип параметра).Value = значение параметра;
+        connect.Open();
+        result = cmd.ExecuteNonQuery() >= 0; // выполняем запрос и получаем количество затронутых записей (INSERT, UPDATE, DELETE) или используем cmd.ExecuteScalar() для получения одиночного значения в результате выполнения запроса SELECT
+    }
+}
+
+или MySqlDataReader для чтения строк таблицы, как результата запроса:
+using (MySqlConnection connect = new MySqlConnection(строка подключения))
+{
+    string sql = "текст запроса";
+    using (MySqlDataReader dr = cmd.ExecuteReader())
+    {
+        cmd.Parameters.Add("название параметра", тип параметра).Value = значение параметра;
+        objConnect.Open();
+        while (dr.Read())
+        {// тут читаем строку по названиям столбцов
+        }
+    }
+}
+
+Хотелось бы дополнительно прокомментировать функцию List:
+
+Не стоит возвращать именно таблицу (DataTable), как таковую – в этом случае мы потеряем в представлении возможность обращаться к элементам класса и будем вынуждены употреблять строковые константы для обращения к значениям в строке таблицы. Т.е. это будет потенциальное место для возникновения ошибок при изменении SQL-запроса. Поэтому создается список из элементов класса EmployeeClass.
+Для добавления ограничения выборки строк из запроса используется конструкция LIMIT в SQL-операторе SELECT. К сожалению, в MySQL не поддерживаются переменные в этой части, и конструкцию LIMIT приходится конструировать вручную и добавлять к запросу. Но это полбеды, поскольку там используются целочисленные значения, а вот подобная практика для конструкции ORDER BY уже чревата нюансами в части инъекции в наш запрос вредоносного кода. Например, злоумышленник может подсунуть в качестве параметра сортировки некий SQL-конструкт, который прервет нашу команду SQL точкой с запятой, а дальше будет идти уже его команда, которая также может быть выполнена. Необходима проверка и чистка входного параметра сортировки, которая осуществляется в контроллере, поэтому в данном методе принимается уже два разобранных значения: название столбца по которому идёт сортировка и направление сортировки.
+После получения списка из БД мы должны запустить ещё команду SQL вида SELECT FOUND_ROWS(), которая должна нам дать общее количество строк получаемых предыдущим запросом, в котором была конструкция SELECT SQL_CALC_FOUND_ROWS без учета ограничения в LIMIT.
+
+Все остальные методы совершенно обычные, соответствуют приведенному выше канону.
+
+
+/////Заключение
+
+Вот и всё – поставленная задача решена. Понятно, что не были затронуты многие вопросы: контейнер внедрения зависимостей, модульное тестирование, инструменты для мокинга, локализация и т.д. и т.п. Какие-то вещи можно было сделать по-другому или просто лучше. Но «кирпичик» который получился, вышел достаточно цельным
+
+Спасибо за уделенное время
+
+С уважением, Алексей
