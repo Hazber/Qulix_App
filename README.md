@@ -1,2 +1,2 @@
 # Qulix_App
-Simple employee CRUD app
+Simple employee CRUD app without packages
